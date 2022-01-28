@@ -1,4 +1,5 @@
 #include "myjson.h"
+#include <cstdio>
 
 // JsonValue的各种派生类和模板特化
 namespace myjson {
@@ -38,13 +39,13 @@ class JsonInt final : public Value<Json::JSON_NUMBER, int> {
     JsonInt(int v) : Value(v) {}
 };
 
-class JsonDouble final : public Value<Json::JSON_NUMBER, int> {
+class JsonDouble final : public Value<Json::JSON_NUMBER, double> {
     double number_value() const { return value; }
     // 使用static_cast安全转型
     int int_value() const { return static_cast<int>(value); }
 
    public:
-    JsonDouble(int v) : Value(v) {}
+    JsonDouble(double v) : Value(v) {}
 };
 
 // 使用单例模式，创建一系列可以公用的静态值和动态值的初始值。
@@ -72,15 +73,24 @@ Json::Type Json::type() const {
 // Json的一系列构造函数
 Json::Json() : v_ptr(singleton().null) {}
 Json::Json(bool value) : v_ptr(make_shared<JsonBool>(value)) {}
+Json::Json(int value) : v_ptr(make_shared<JsonInt>(value)) {
+    puts("int");
+}
+Json::Json(double value) : v_ptr(make_shared<JsonDouble>(value)) {
+    puts("double");
+}
 
 // Json的访问器
 bool Json::bool_value() const {
     return v_ptr->bool_value();
 }
 
-// JsonValue的默认访问器
-bool JsonValue::bool_value() const {
-    return false;
+int Json::int_value() const {
+    return v_ptr->int_value();
+}
+
+double Json::number_value() const {
+    return v_ptr->number_value();
 }
 
 // JsonParser
@@ -89,17 +99,12 @@ Json JsonParser::parse_json() {
     switch (ch) {
         case 'n':
             return expect("null", Json());
-            break;
         case 't':
             return expect("true", Json(true));
-            break;
         case 'f':
             return expect("false", Json(false));
-            break;
-        case '\0':
-            return Json();
-            break;
         default:
+            i--;
             return parse_number();
     }
 }
@@ -116,7 +121,7 @@ Json JsonParser::expect(const string& expected, Json res) {
     }
 }
 
-static inline bool in_range(long x, long lower, long upper) {
+static inline bool in_range(char x, char lower, char upper) {
     return (x >= lower && x <= upper);
 }
 
@@ -129,6 +134,7 @@ static inline bool in_range(long x, long lower, long upper) {
 */
 Json JsonParser::parse_number() {
     size_t start = i;  //记录起始位置
+    printf("i = %zu\n", i);
 
     // 可选的负号部分
     if (str[i] == '-')
@@ -139,15 +145,43 @@ Json JsonParser::parse_number() {
         i++;
     else {
         if (!in_range(str[i], '1', '9'))
-            return Json();  //检查至少有一个digit
+            return Json(5);  //检查至少有一个digit
         for (i++; in_range(str[i], '0', '9'); i++)
             ;  //跳过所有digit
     }
+
+    if (str[i] != '.' && str[i] != 'e' && str[i] != 'E' &&
+        (i - start) <=
+            static_cast<size_t>(std::numeric_limits<int>::digits10)) {
+        // std::numeric_limits<int>::digits10表示用10进制表示int的最大值需要的位数
+        // 将该字符串转化为int
+        int res = std::atoi(str.c_str() + start);
+        printf("int res = %d\n", res);
+        return std::atoi(str.c_str() + start);
+    }
+
+    // Decimal部分，从这开始使用double
     if (str[i] == '.') {
         i++;
-        if (!in_range(str[i], '0', '9'))
-            return Json();  //检查至少有一个digit
+        if (!in_range(str[i], '0', '9'))  //检查至少有一个digit
+            return Json(6);
+        for (i++; in_range(str[i], '0', '9'); i++)
+            ;
     }
+
+    // Exponent部分
+    if (str[i] == 'e' || str[i] == 'E') {
+        i++;
+        if (str[i] == '+' || str[i] == '-')  //跳过正负号
+            i++;
+        if (!in_range(str[i], '0', '9'))
+            return Json(7);
+        for (i++; in_range(str[i], '0', '9'); i++)
+            ;
+    }
+    double res = std::strtod(str.c_str() + start, nullptr);
+    printf("double res = %f\n", res);
+    return std::strtod(str.c_str() + start, nullptr);
 }
 
 Json Json::parse(const std::string& in) {

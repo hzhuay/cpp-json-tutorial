@@ -30,13 +30,18 @@ class Json {
     // 构造函数
     Json();
     Json(bool value);  // BOOL
+    Json(int value);
+    Json(double value);
 
     // 类型
     Type type() const;
     bool is_bool() const { return type() == JSON_BOOL; }
+    bool is_number() const { return type() == JSON_NUMBER; }
 
     // 获得值
     bool bool_value() const;
+    double number_value() const;
+    int int_value() const;
 
     static Json parse(const std::string& in);
 };
@@ -46,7 +51,9 @@ class JsonValue {
 
    protected:
     virtual Json::Type type() const = 0;
-    virtual bool bool_value() const;
+    virtual bool bool_value() const { return false; }
+    virtual double number_value() const { return 0; }
+    virtual int int_value() const { return 0; }
 };
 
 class JsonParser final {

@@ -4,9 +4,9 @@
 #include <iostream>
 #include "myjson.h"
 
-static int main_ret = 0;
-static int test_count = 0;
-static int test_pass = 0;
+// static int main_ret = 0;
+// static int test_count = 0;
+// static int test_pass = 0;
 
 using namespace myjson;
 using std::cin;
@@ -28,7 +28,6 @@ using std::cout;
     EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%d")
 
 static void test_parse() {
-    int err;
     Json json = Json::parse("true");
     cout << json.bool_value() << std::endl;
 
@@ -37,6 +36,9 @@ static void test_parse() {
 
     json = Json::parse("null");
     cout << json.bool_value() << std::endl;
+
+    json = Json::parse("1.1");
+    cout << json.number_value() << std::endl;
 
     // std::cout << "k1: " << json["k1"].string_value() << "\n";
     // std::cout << "k3: " << json["k3"].dump() << "\n";
