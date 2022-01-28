@@ -1,2 +1,41 @@
 # cpp-json-tutorial
-This is the C++11 version of miloyip/json-tutorial for practice purpose.
+原作者库：[miloyip/json-tutorial](https://github.com/miloyip/json-tutorial)，以下将该项目简称为**leptjson**。
+
+**leptjson**使用C98编写。C语言编程风格与面向对象风格有很大差距。为了进一步练习C++编程，我试图模仿原作者的构建思路，使用C++11在仿写**leptjson**，尽量使用C++的特性，比如用模板代替宏等。所做的改动旨在尽可能广泛的练习和巩固C++基础，而非完全为了系统的高效。
+
+## 从C到C++
+
+从C升级到C++，需要对原程序进行一系列的改动。该小节列举了我能想到的一些需要替换升级的点。
+
+### 从宏到模板函数
+
+### 从面向过程到面向对象
+
+### 从错误码到异常
+
+在C语言中异常处理一般有这么几种方式：
+
+- 使用标准*C*库提供了*abort()*和*exit()*两个函数，它们可以强行终止程序的运行，其声明处于*<stdlib.h>*头文件中。
+
+- 使用assert(断言)宏调用，位于头文件<assert.h>中，当程序出错时，就会引发一个abort（）。
+
+- 使用errno全局变量，由C运行时库函数提供，位于头文件<errno.h>中。
+
+- 使用goto语句，当出错时跳转。
+
+- 使用setjmp,longjmp进行异常处理。
+
+**leptjson**中采用了错误码的方式，在头文件中用枚举定义了一组错误码。
+
+在C++版本中，我将使用异常抛出和捕获机制，同时也会保留错误码的机制。
+
+### 从Switch到模板特化
+
+
+
+
+
+
+
+
+
