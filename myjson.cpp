@@ -1,5 +1,7 @@
 #include "myjson.h"
+#include <climits>
 #include <cstdio>
+#include <cmath>
 
 // JsonValue的各种派生类和模板特化
 namespace myjson {
@@ -7,6 +9,7 @@ namespace myjson {
 using std::make_shared;
 using std::move;
 using std::shared_ptr;
+using std::string;
 
 template <Json::Type t, typename T>
 class Value : public JsonValue {
@@ -48,11 +51,21 @@ class JsonDouble final : public Value<Json::JSON_NUMBER, double> {
     JsonDouble(double v) : Value(v) {}
 };
 
-// 使用单例模式，创建一系列可以公用的静态值和动态值的初始值。
+class JsonString final : public Value<Json::JSON_STRING, string> {
+    const string& string_value() const { return value; }
+public:
+    JsonString(const string &value) : Value(value) {}
+    JsonString(string &&value): Value(move(value)) {}
+};
+
+/*
+    使用单例模式，创建一系列可以公用的静态值和动态值的初始值。
+*/
 struct Singleton {
     const shared_ptr<JsonValue> null = make_shared<JsonNull>();
     const shared_ptr<JsonValue> t = make_shared<JsonBool>(true);
     const shared_ptr<JsonValue> f = make_shared<JsonBool>(false);
+    const string empty_string;
     Singleton() {}
 };
 
@@ -62,62 +75,75 @@ static const Singleton& singleton() {
     return s;
 }
 
-}  // namespace myjson
 
-namespace myjson {
+bool JsonValue::bool_value() const { return false; }
+double JsonValue::number_value() const { return 0; }
+int JsonValue::int_value() const { return 0; }
+const string& JsonValue::string_value() const { return singleton().empty_string; }
 
-Json::Type Json::type() const {
-    return v_ptr->type();
-}
+/*
+    Json
+*/
+
+// 获取Json的类型
+Json::Type Json::type() const { return v_ptr->type(); }
 
 // Json的一系列构造函数
-Json::Json() : v_ptr(singleton().null) {}
-Json::Json(bool value) : v_ptr(make_shared<JsonBool>(value)) {}
-Json::Json(int value) : v_ptr(make_shared<JsonInt>(value)) {
-    puts("int");
-}
-Json::Json(double value) : v_ptr(make_shared<JsonDouble>(value)) {
-    puts("double");
-}
+Json::Json() :                      v_ptr(singleton().null) {}
+Json::Json(State s) :               v_ptr(singleton().null), state(s) {}
+Json::Json(bool value) :            v_ptr(make_shared<JsonBool>(value)) {}
+Json::Json(int value) :             v_ptr(make_shared<JsonInt>(value)) {}
+Json::Json(double value) :          v_ptr(make_shared<JsonDouble>(value)) {}
+Json::Json(const string& value):    v_ptr(make_shared<JsonString>(value)) {}
+Json::Json(string&& value):         v_ptr(make_shared<JsonString>(move(value))) {}
+Json::Json(const char* value):      v_ptr(make_shared<JsonString>(value)) {}
 
 // Json的访问器
-bool Json::bool_value() const {
-    return v_ptr->bool_value();
-}
+bool Json::bool_value()             const { return v_ptr->bool_value(); }
+int Json::int_value()               const { return v_ptr->int_value(); }
+double Json::number_value()         const { return v_ptr->number_value(); }
+const string & Json::string_value() const { return v_ptr->string_value(); }
 
-int Json::int_value() const {
-    return v_ptr->int_value();
-}
 
-double Json::number_value() const {
-    return v_ptr->number_value();
-}
+/*
+    JsonParser
+*/
 
 // JsonParser
 Json JsonParser::parse_json() {
-    char ch = str[i++];
+    char ch = get_next_token();
     switch (ch) {
-        case 'n':
-            return expect("null", Json());
-        case 't':
-            return expect("true", Json(true));
-        case 'f':
-            return expect("false", Json(false));
-        default:
-            i--;
-            return parse_number();
+        case 'n': return parse_literal("null", Json());
+        case 't': return parse_literal("true", Json(true));
+        case 'f': return parse_literal("false", Json(false));
+        case '"': return parse_string();
+        case '\0': return Json(JSON_PARSE_EXPECT_VALUE);
+        default: i--; return parse_number();
     }
 }
 
-// 解析null, boll
-Json JsonParser::expect(const string& expected, Json res) {
+// 解析空白字符
+void JsonParser::parse_whitespace() {
+    while (str[i] == ' ' || str[i] == '\t' || str[i] == '\n' || str[i] == '\r')
+        i++;
+}
+
+// 增加i使跳过空白字符，获得下一个token的起始字符
+char JsonParser::get_next_token() {
+    if (i == str.size())
+        return '\0';
+    return str[i++];
+}
+
+// 解析null, bool这样的字面量
+Json JsonParser::parse_literal(const string& expected, Json res) {
     assert(i != 0);
     i--;
     if (str.compare(i, expected.length(), expected) == 0) {
         i += expected.length();
         return res;
     } else {
-        return Json();
+        return Json(JSON_PARSE_INVALID_VALUE);
     }
 }
 
@@ -127,36 +153,29 @@ static inline bool in_range(char x, char lower, char upper) {
 
 // 利用std::strtod来将字符串解析为number
 /*
-    number = [ "-" ] int [ frac ] [ exp ]
-    int = "0" / digit1-9 *digit
-    frac = "." 1*digit
-    exp = ("e" / "E") ["-" / "+"] 1*digit
+number = [ "-" ] int [ frac ] [ exp ]
+int = "0" / digit1-9 *digit
+frac = "." 1*digit
+exp = ("e" / "E") ["-" / "+"] 1*digit
 */
 Json JsonParser::parse_number() {
     size_t start = i;  //记录起始位置
-    printf("i = %zu\n", i);
 
     // 可选的负号部分
-    if (str[i] == '-')
-        i++;  //跳过负号
+    if (str[i] == '-') i++;  //跳过负号
 
     // int部分
-    if (str[i] == '0')
-        i++;
+    if (str[i] == '0') i++;
     else {
         if (!in_range(str[i], '1', '9'))
-            return Json(5);  //检查至少有一个digit
-        for (i++; in_range(str[i], '0', '9'); i++)
-            ;  //跳过所有digit
+            return Json(JSON_PARSE_INVALID_VALUE);  //检查至少有一个digit
+        for (i++; in_range(str[i], '0', '9'); i++);  //跳过所有digit
     }
 
-    if (str[i] != '.' && str[i] != 'e' && str[i] != 'E' &&
-        (i - start) <=
+    if (str[i] != '.' && str[i] != 'e' && str[i] != 'E' && (i - start) <=
             static_cast<size_t>(std::numeric_limits<int>::digits10)) {
         // std::numeric_limits<int>::digits10表示用10进制表示int的最大值需要的位数
         // 将该字符串转化为int
-        int res = std::atoi(str.c_str() + start);
-        printf("int res = %d\n", res);
         return std::atoi(str.c_str() + start);
     }
 
@@ -164,29 +183,128 @@ Json JsonParser::parse_number() {
     if (str[i] == '.') {
         i++;
         if (!in_range(str[i], '0', '9'))  //检查至少有一个digit
-            return Json(6);
-        for (i++; in_range(str[i], '0', '9'); i++)
-            ;
+            return Json(JSON_PARSE_INVALID_VALUE);
+        for (i++; in_range(str[i], '0', '9'); i++);
     }
 
     // Exponent部分
     if (str[i] == 'e' || str[i] == 'E') {
         i++;
-        if (str[i] == '+' || str[i] == '-')  //跳过正负号
-            i++;
+        if (str[i] == '+' || str[i] == '-') i++;    //跳过正负号
         if (!in_range(str[i], '0', '9'))
-            return Json(7);
-        for (i++; in_range(str[i], '0', '9'); i++)
-            ;
+            return Json(JSON_PARSE_INVALID_VALUE);
+        for (i++; in_range(str[i], '0', '9'); i++);
     }
-    double res = std::strtod(str.c_str() + start, nullptr);
-    printf("double res = %f\n", res);
     return std::strtod(str.c_str() + start, nullptr);
 }
 
-Json Json::parse(const std::string& in) {
+
+// 在leptjson中这个方法是手动计算的。也可以采用标准库的strtol，但是这个计算足够简单，无法一眼判断是否有替换的必要。
+bool JsonParser::parse_hex4(unsigned int& u) {
+    for (size_t j = 0; j < 4; j++) {
+        char ch = str[i++];
+        u <<= 4;
+        if      (in_range(ch, '0', '9')) u |= ch - '0';
+        else if (in_range(ch, 'A', 'F')) u |= ch - 'A' + 10;
+        else if (in_range(ch, 'a', 'f')) u |= ch - 'a' + 10;
+        else return false;
+    }
+    return true;
+}
+
+void JsonParser::encode_utf8(unsigned int u, string& out) {
+    if (u <= 0x7F) {
+        out += static_cast<char>(u);
+    } else if (u <= 0x7FF) {
+        out += static_cast<char>(0xC0 | (u >> 6));
+        out += static_cast<char>(0x80 | (u & 0x3F));
+    } else if (u <= 0xFFFF) {
+        out += static_cast<char>(0xE0 | (u >> 12));
+        out += static_cast<char>(0x80 | ((u >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (u & 0x3F));
+    } else {
+        assert(u <= 0x10FFFF);
+        out += static_cast<char>(0xF0 | (u >> 18));
+        out += static_cast<char>(0x80 | ((u >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((u >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (u & 0x3F));
+    }
+}
+
+// 解析字符串
+Json JsonParser::parse_string() {
+    string out;
+    while (i < str.size()) {
+        char ch = str[i++];
+        switch (ch) {
+            case '"':
+                return out;
+            case '\\':
+                switch (str[i++]) {
+                    case '\\':  out += '\\'; break;
+                    case 'b':   out += '\b'; break;
+                    case 'f':   out += '\f'; break;
+                    case 'n':   out += '\n'; break;
+                    case 'r':   out += '\r'; break;
+                    case 't':   out += '\t'; break;
+                    case '"':   out += '\"'; break;
+                    case '/':   out += '/';  break;
+                    case 'u':   //unicode字符
+                        // 一口气读取4字节，把这个Unicode字符读取完
+                        unsigned int u, u2;
+                        if (!parse_hex4(u))  // 返回一个（错误码）不可能的值，直接返回
+                            return Json(JSON_PARSE_INVALID_UNICODE_HEX);
+                        /*
+                            utf-8的字符长度可以是1，2，3。
+                            Json可以使用代理对（surrogate pair），用两个16位的字符来表达一个Unicode码点
+                            如果第一个码点是U+D800至U+DBFF，说明这是高代理项，后面一定伴随一个U+DC00至U+DFFF的低代理项
+                            这里需要将代理对转换为Unicode码点
+                        */
+                        if (u >= 0xD800 && u <= 0xDBFF) {
+                            if (str[i++] != '\\')
+                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (str[i++] != 'u')
+                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (!parse_hex4(u2))
+                                return Json(JSON_PARSE_INVALID_UNICODE_HEX);
+                            if (u2 < 0xDC00 || u2 > 0xDFFF)
+                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+                        }
+                        encode_utf8(u, out);
+                        break;
+                    default:
+                        return Json(JSON_PARSE_INVALID_STRING_ESCAPE);
+                }
+                break;
+            case '\0':  //字符串没有右引号结尾就意外结束了
+                return Json(JSON_PARSE_MISS_QUOTATION_MARK);
+            default:
+                if ((unsigned char)ch < 0x20)
+                    return Json(JSON_PARSE_INVALID_STRING_CHAR);
+                out += ch;  //ASCII字符，直接添加
+
+        }
+    }
+    return Json(JSON_PARSE_INVALID_VALUE);
+}
+
+// 解析数组
+Json JsonParser::parse_array() {
+    return Json();
+}
+
+// 解析对象
+Json JsonParser::parse_object() {
+    return Json();
+}
+
+Json Json::parse(const string& in) {
     JsonParser parser{in};
     Json res = parser.parse_json();
+
+    if (parser.get_index() != in.size() || res.state != JSON_PARSE_OK)
+        return Json(JSON_PARSE_EXPECT_VALUE);
     return res;
 }
 
