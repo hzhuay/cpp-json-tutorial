@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <vector>
+#include <map>
 
 using std::string;
 using std::shared_ptr;
@@ -40,27 +42,53 @@ class Json {
 
     State state = JSON_PARSE_OK;
 
+    // 给数组和对象类型起别名
+    typedef std::vector<Json> array;
+    typedef std::map<string, Json> object;
+
     // 构造函数
-    Json();
-    Json(State s);     // 用State构造
-    Json(bool value);  // BOOL
-    Json(int value);
-    Json(double value);
+    Json() noexcept;
+    // Json(std::nullptr_t);
+    Json(State s);              // 用State构造
+    Json(bool value);           // BOOL
+    Json(int value);            // int
+    Json(double value);         // double
     Json(const string& value);  // std::string
-    Json(string&& value);       // move
-    Json(const char* value);     // c-style string
+    Json(string&& value);       // move string
+    Json(const char* value);    // c-style string
+    Json(const array& value);   // std::vector
+    Json(array&& value);        // move array
+    Json(const object& value);  // std::map
+    Json(object&& value);       // move map
+
 
     // 类型
     Type type() const;
+    bool is_null()      const { return type() == JSON_NULL; }
     bool is_bool()      const { return type() == JSON_BOOL; }
     bool is_number()    const { return type() == JSON_NUMBER; }
-    bool is_string()    const { return type() == JSON_STRING;}
+    bool is_string()    const { return type() == JSON_STRING; }
+    bool is_array()     const { return type() == JSON_ARRAY; }
+    bool is_obejct()    const { return type() == JSON_OBJECT; }
 
     // 获得值
     bool bool_value() const;
     double number_value() const;
     int int_value() const;
     const string& string_value() const;
+    const array & array_value() const;
+    const object & object_value() const;
+
+    // 重载[]符号，通过index得到数组元素，或者string得到object元素
+    const Json& operator[] (size_t i) const;
+    const Json& operator[] (const string& key) const;
+
+    bool operator== (const Json &rhs) const;
+    bool operator<  (const Json &rhs) const;
+    bool operator!= (const Json &rhs) const { return !(*this == rhs); }
+    bool operator<= (const Json &rhs) const { return !(rhs < *this); }
+    bool operator>  (const Json &rhs) const { return  (rhs < *this); }
+    bool operator>= (const Json &rhs) const { return !(*this < rhs); }
 
     static Json parse(const std::string& in);
 };
@@ -74,6 +102,11 @@ class JsonValue {
     virtual double number_value() const;
     virtual int int_value() const;
     virtual const string& string_value() const;
+    virtual const Json::array& array_value() const;
+    virtual const Json::object& object_value() const;
+    virtual const Json& operator[] (size_t i) const;
+    virtual const Json& operator[] (const string& key) const;
+
 };
 
 class JsonParser final {

@@ -11,18 +11,23 @@ using std::move;
 using std::shared_ptr;
 using std::string;
 
+struct NullStruct {
+    bool operator==(NullStruct) const { return true; }
+    bool operator<(NullStruct) const { return false; }
+};
+
 template <Json::Type t, typename T>
 class Value : public JsonValue {
-   protected:
+protected:
     const T value;
 
-    Value(const T& v) : value(v) {}
-    Value(T&& v) : value(move(v)) {}
+    explicit Value(const T& v) : value(v) {}
+    explicit Value(T&& v) : value(move(v)) {}
 
     Json::Type type() const override { return t; }
 };
 
-class JsonNull final : public Value<Json::JSON_NULL, nullptr_t> {
+class JsonNull final : public Value<Json::JSON_NULL, NullStruct> {
    public:
     JsonNull() : Value({}) {}
 };
@@ -47,15 +52,31 @@ class JsonDouble final : public Value<Json::JSON_NUMBER, double> {
     // 使用static_cast安全转型
     int int_value() const { return static_cast<int>(value); }
 
-   public:
+public:
     JsonDouble(double v) : Value(v) {}
 };
 
 class JsonString final : public Value<Json::JSON_STRING, string> {
     const string& string_value() const { return value; }
 public:
-    JsonString(const string &value) : Value(value) {}
-    JsonString(string &&value): Value(move(value)) {}
+    JsonString(const string &v) : Value(v) {}
+    JsonString(string &&v): Value(move(v)) {}
+};
+
+class JsonArray final : public Value<Json::JSON_ARRAY, Json::array> {
+    const Json::array& array_value() const override { return value; }
+    const Json& operator[] (size_t i) const override;
+public:
+     JsonArray(const Json::array& v): Value(v) {}
+     JsonArray(Json::array&& v): Value(move(v)) {}
+};
+
+class JsonObject final : public Value<Json::JSON_OBJECT, Json::object> {
+    const Json::object& object_value() const override { return value; }
+    const Json& operator[] (const string& key) const override;
+public:
+    JsonObject(const Json::object& v): Value(v) {}
+    JsonObject(Json::object&& v): Value(move(v)) {}
 };
 
 /*
@@ -66,21 +87,38 @@ struct Singleton {
     const shared_ptr<JsonValue> t = make_shared<JsonBool>(true);
     const shared_ptr<JsonValue> f = make_shared<JsonBool>(false);
     const string empty_string;
+    const Json::array empty_array;
+    const Json::object empty_object;
+    const Json empty_json;
     Singleton() {}
 };
 
 // 利用静态局部变量，实现单例
 static const Singleton& singleton() {
-    static const Singleton s{};
+    static const Singleton s;
     return s;
 }
 
+static const Json& static_null() {
+    static const Json json_null;
+    return json_null;
+}
 
-bool JsonValue::bool_value() const { return false; }
-double JsonValue::number_value() const { return 0; }
-int JsonValue::int_value() const { return 0; }
-const string& JsonValue::string_value() const { return singleton().empty_string; }
-
+// JsonValue的默认值返回函数
+// 这里留一个问题，这样的设计是每种类型的值都有对应的取值函数，特化子类用对应的取值方法覆盖默认方法。
+// 为什么不设计为统一接口，根据模板来推导返回值类型呢？
+bool                JsonValue::bool_value()                     const { return false; }
+double              JsonValue::number_value()                   const { return 0; }
+int                 JsonValue::int_value()                      const { return 0; }
+const string&       JsonValue::string_value()                   const { return singleton().empty_string; }
+const Json::array&  JsonValue::array_value()                    const { return singleton().empty_array; }
+const Json::object& JsonValue::object_value()                   const { return singleton().empty_object; }
+const Json& JsonValue::operator[](size_t i) const {
+    return static_null();
+}
+const Json& JsonValue::operator[](const string& key) const {
+    return static_null();
+}
 /*
     Json
 */
@@ -89,21 +127,39 @@ const string& JsonValue::string_value() const { return singleton().empty_string;
 Json::Type Json::type() const { return v_ptr->type(); }
 
 // Json的一系列构造函数
-Json::Json() :                      v_ptr(singleton().null) {}
-Json::Json(State s) :               v_ptr(singleton().null), state(s) {}
-Json::Json(bool value) :            v_ptr(make_shared<JsonBool>(value)) {}
-Json::Json(int value) :             v_ptr(make_shared<JsonInt>(value)) {}
-Json::Json(double value) :          v_ptr(make_shared<JsonDouble>(value)) {}
-Json::Json(const string& value):    v_ptr(make_shared<JsonString>(value)) {}
-Json::Json(string&& value):         v_ptr(make_shared<JsonString>(move(value))) {}
-Json::Json(const char* value):      v_ptr(make_shared<JsonString>(value)) {}
+Json::Json() noexcept:                  v_ptr(singleton().null) {}
+Json::Json(State s) :                   v_ptr(singleton().null), state(s) {}
+Json::Json(bool value) :                v_ptr(make_shared<JsonBool>(value)) {}
+Json::Json(int value) :                 v_ptr(make_shared<JsonInt>(value)) {}
+Json::Json(double value) :              v_ptr(make_shared<JsonDouble>(value)) {}
+Json::Json(const string& value):        v_ptr(make_shared<JsonString>(value)) {}
+Json::Json(string&& value):             v_ptr(make_shared<JsonString>(move(value))) {}
+Json::Json(const char* value):          v_ptr(make_shared<JsonString>(value)) {}
+Json::Json(const Json::array& value):   v_ptr(make_shared<JsonArray>(value)) {}
+Json::Json(Json::array&& value):        v_ptr(make_shared<JsonArray>(move(value))) {}
+Json::Json(const Json::object& value):  v_ptr(make_shared<JsonObject>(value)) {}
+Json::Json(Json::object&& value):       v_ptr(make_shared<JsonObject>(move(value))) {}
 
 // Json的访问器
-bool Json::bool_value()             const { return v_ptr->bool_value(); }
-int Json::int_value()               const { return v_ptr->int_value(); }
-double Json::number_value()         const { return v_ptr->number_value(); }
-const string & Json::string_value() const { return v_ptr->string_value(); }
+bool Json::bool_value()                             const { return v_ptr->bool_value(); }
+int Json::int_value()                               const { return v_ptr->int_value(); }
+double Json::number_value()                         const { return v_ptr->number_value(); }
+const string& Json::string_value()                  const { return v_ptr->string_value(); }
+const Json::array& Json::array_value()              const { return v_ptr->array_value(); }
+const Json::object& Json::object_value()            const { return v_ptr->object_value(); }
+const Json& Json::operator[] (size_t i)             const { return (*v_ptr)[i]; }
+const Json& Json::operator[] (const string& key)    const { return (*v_ptr)[key]; }
 
+const Json& JsonArray::operator[] (size_t i) const {
+    if (i >= value.size())
+        return static_null();
+    else return value[i];
+}
+
+const Json& JsonObject::operator[] (const string& key) const {
+    auto iter = value.find(key);
+    return (iter == value.end()) ? static_null() : iter->second;
+}
 
 /*
     JsonParser
@@ -117,6 +173,7 @@ Json JsonParser::parse_json() {
         case 't': return parse_literal("true", Json(true));
         case 'f': return parse_literal("false", Json(false));
         case '"': return parse_string();
+        // case '[': return parse_array();
         case '\0': return Json(JSON_PARSE_EXPECT_VALUE);
         default: i--; return parse_number();
     }
@@ -130,6 +187,7 @@ void JsonParser::parse_whitespace() {
 
 // 增加i使跳过空白字符，获得下一个token的起始字符
 char JsonParser::get_next_token() {
+    parse_whitespace();
     if (i == str.size())
         return '\0';
     return str[i++];
@@ -139,8 +197,10 @@ char JsonParser::get_next_token() {
 Json JsonParser::parse_literal(const string& expected, Json res) {
     assert(i != 0);
     i--;
+    printf("expected: %s\n", expected.c_str());
     if (str.compare(i, expected.length(), expected) == 0) {
         i += expected.length();
+        printf("length = %zu\n", i);
         return res;
     } else {
         return Json(JSON_PARSE_INVALID_VALUE);
@@ -291,7 +351,23 @@ Json JsonParser::parse_string() {
 
 // 解析数组
 Json JsonParser::parse_array() {
-    return Json();
+    Json::array a;
+    char ch = get_next_token();
+    if (ch == ']')
+        return a;
+    while (true) {
+        i--;
+        a.push_back(parse_json());
+        if (a.rbegin()->state != JSON_PARSE_OK)
+            return *a.rbegin();
+        ch = get_next_token();
+        if (ch == ']') {
+            printf("%zu\n", a.size());
+            return a;
+        } else if (ch != ',')
+            break;
+    }
+    return Json(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET);
 }
 
 // 解析对象
@@ -300,7 +376,7 @@ Json JsonParser::parse_object() {
 }
 
 Json Json::parse(const string& in) {
-    JsonParser parser{in};
+    JsonParser parser(in);
     Json res = parser.parse_json();
 
     if (parser.get_index() != in.size() || res.state != JSON_PARSE_OK)
