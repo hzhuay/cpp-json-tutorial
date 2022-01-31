@@ -49,8 +49,13 @@ static void test_parse() {
     json = Json::parse("\"Hello World 你好，世界\"");
     cout << json.string_value() << std::endl;
 
-    // json = Json::parse("[1, 2.3, true, false, \"Hello world\"]");
-    // cout << json.array_value().size() << std::endl;
+    json = Json::parse("[1, 2.3, true, false, \"Hello\", [1,2]]");
+    cout << json.array_value().size() << std::endl;
+
+    json = Json::parse("{\"a\":1, \"b\":2.3, \"c\":true, \"d\":false, \"e\":\"Hello\", \"f\":[1,2], \"g\": {\"h\": 1}}");
+    cout << json.object_value().size() << std::endl;
+    // cout << json.state<< std::endl;
+    cout << json["a"].int_value() << std::endl;
 
     // std::cout << "k1: " << json["k1"].string_value() << "\n";
     // std::cout << "k3: " << json["k3"].dump() << "\n";

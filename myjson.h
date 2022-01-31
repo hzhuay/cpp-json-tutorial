@@ -110,11 +110,13 @@ class JsonValue {
 };
 
 class JsonParser final {
-   private:
+private:
     const string& str;
     size_t i = 0;
 
-   public:
+
+public:
+    bool failed = false;
     JsonParser(const std::string& in) : str(in){};
     Json parse();
     void parse_whitespace();
@@ -123,11 +125,21 @@ class JsonParser final {
     Json parse_literal(const string& expected, Json res);
     Json parse_number();
     bool parse_hex4(unsigned int & u);
-    Json parse_string();
+    string parse_string();
     Json parse_array();
     Json parse_object();
     int get_index() const { return i; }
     void encode_utf8(unsigned int u, string& out);
+
+    template <typename T>
+    T fail(const T ret) {
+        failed = true;
+        return ret;
+    }
+
+    Json fail() {
+        return fail(Json());
+    }
 };
 
 }  // namespace myjson

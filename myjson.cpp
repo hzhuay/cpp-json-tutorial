@@ -28,23 +28,23 @@ protected:
 };
 
 class JsonNull final : public Value<Json::JSON_NULL, NullStruct> {
-   public:
-    JsonNull() : Value({}) {}
+public:
+    explicit JsonNull() : Value({}) {}
 };
 
 class JsonBool final : public Value<Json::JSON_BOOL, bool> {
     bool bool_value() const { return value; }
 
-   public:
-    JsonBool(bool v) : Value(v) {}
+public:
+    explicit JsonBool(bool v) : Value(v) {}
 };
 
 class JsonInt final : public Value<Json::JSON_NUMBER, int> {
     double number_value() const { return value; }
     int int_value() const { return value; }
 
-   public:
-    JsonInt(int v) : Value(v) {}
+public:
+   explicit JsonInt(int v) : Value(v) {}
 };
 
 class JsonDouble final : public Value<Json::JSON_NUMBER, double> {
@@ -89,7 +89,7 @@ struct Singleton {
     const string empty_string;
     const Json::array empty_array;
     const Json::object empty_object;
-    const Json empty_json;
+    // const Json empty_json;
     Singleton() {}
 };
 
@@ -173,7 +173,8 @@ Json JsonParser::parse_json() {
         case 't': return parse_literal("true", Json(true));
         case 'f': return parse_literal("false", Json(false));
         case '"': return parse_string();
-        // case '[': return parse_array();
+        case '[': return parse_array();
+        case '{': return parse_object();
         case '\0': return Json(JSON_PARSE_EXPECT_VALUE);
         default: i--; return parse_number();
     }
@@ -189,7 +190,7 @@ void JsonParser::parse_whitespace() {
 char JsonParser::get_next_token() {
     parse_whitespace();
     if (i == str.size())
-        return '\0';
+        return fail('\0');
     return str[i++];
 }
 
@@ -197,13 +198,11 @@ char JsonParser::get_next_token() {
 Json JsonParser::parse_literal(const string& expected, Json res) {
     assert(i != 0);
     i--;
-    printf("expected: %s\n", expected.c_str());
     if (str.compare(i, expected.length(), expected) == 0) {
         i += expected.length();
-        printf("length = %zu\n", i);
         return res;
     } else {
-        return Json(JSON_PARSE_INVALID_VALUE);
+        return fail(Json(JSON_PARSE_INVALID_VALUE));
     }
 }
 
@@ -228,7 +227,7 @@ Json JsonParser::parse_number() {
     if (str[i] == '0') i++;
     else {
         if (!in_range(str[i], '1', '9'))
-            return Json(JSON_PARSE_INVALID_VALUE);  //检查至少有一个digit
+            return fail(Json(JSON_PARSE_INVALID_VALUE));  //检查至少有一个digit
         for (i++; in_range(str[i], '0', '9'); i++);  //跳过所有digit
     }
 
@@ -243,7 +242,7 @@ Json JsonParser::parse_number() {
     if (str[i] == '.') {
         i++;
         if (!in_range(str[i], '0', '9'))  //检查至少有一个digit
-            return Json(JSON_PARSE_INVALID_VALUE);
+            return fail(Json(JSON_PARSE_INVALID_VALUE));
         for (i++; in_range(str[i], '0', '9'); i++);
     }
 
@@ -252,7 +251,7 @@ Json JsonParser::parse_number() {
         i++;
         if (str[i] == '+' || str[i] == '-') i++;    //跳过正负号
         if (!in_range(str[i], '0', '9'))
-            return Json(JSON_PARSE_INVALID_VALUE);
+            return fail(Json(JSON_PARSE_INVALID_VALUE));
         for (i++; in_range(str[i], '0', '9'); i++);
     }
     return std::strtod(str.c_str() + start, nullptr);
@@ -292,7 +291,7 @@ void JsonParser::encode_utf8(unsigned int u, string& out) {
 }
 
 // 解析字符串
-Json JsonParser::parse_string() {
+string JsonParser::parse_string() {
     string out;
     while (i < str.size()) {
         char ch = str[i++];
@@ -313,7 +312,7 @@ Json JsonParser::parse_string() {
                         // 一口气读取4字节，把这个Unicode字符读取完
                         unsigned int u, u2;
                         if (!parse_hex4(u))  // 返回一个（错误码）不可能的值，直接返回
-                            return Json(JSON_PARSE_INVALID_UNICODE_HEX);
+                            return fail("");
                         /*
                             utf-8的字符长度可以是1，2，3。
                             Json可以使用代理对（surrogate pair），用两个16位的字符来表达一个Unicode码点
@@ -322,65 +321,79 @@ Json JsonParser::parse_string() {
                         */
                         if (u >= 0xD800 && u <= 0xDBFF) {
                             if (str[i++] != '\\')
-                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                                return fail("");
                             if (str[i++] != 'u')
-                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                                return fail("");
                             if (!parse_hex4(u2))
-                                return Json(JSON_PARSE_INVALID_UNICODE_HEX);
+                                return fail("");
                             if (u2 < 0xDC00 || u2 > 0xDFFF)
-                                return Json(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                                return fail("");
                             u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
                         }
                         encode_utf8(u, out);
                         break;
                     default:
-                        return Json(JSON_PARSE_INVALID_STRING_ESCAPE);
+                        return fail("");
                 }
                 break;
             case '\0':  //字符串没有右引号结尾就意外结束了
-                return Json(JSON_PARSE_MISS_QUOTATION_MARK);
+                return fail("");
             default:
                 if ((unsigned char)ch < 0x20)
-                    return Json(JSON_PARSE_INVALID_STRING_CHAR);
+                    return fail("");
                 out += ch;  //ASCII字符，直接添加
-
         }
     }
-    return Json(JSON_PARSE_INVALID_VALUE);
+    return fail("");
 }
 
 // 解析数组
 Json JsonParser::parse_array() {
     Json::array a;
     char ch = get_next_token();
-    if (ch == ']')
-        return a;
+    if (ch == ']') return a;
     while (true) {
         i--;
         a.push_back(parse_json());
         if (a.rbegin()->state != JSON_PARSE_OK)
             return *a.rbegin();
         ch = get_next_token();
-        if (ch == ']') {
-            printf("%zu\n", a.size());
-            return a;
-        } else if (ch != ',')
-            break;
+        if (ch == ']') break;
+        else if (ch != ',') return Json(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET);
+        ch = get_next_token();
     }
-    return Json(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET);
+    return a;
 }
 
 // 解析对象
 Json JsonParser::parse_object() {
-    return Json();
+    Json::object o;
+    char ch = get_next_token();
+    // printf("%c\n", ch);
+    if (ch == '}') return o;
+    while (true) {
+        if (ch != '"') return fail(Json(JSON_PARSE_MISS_KEY));
+        string key = parse_string();
+        // printf("%s\n", key.c_str());
+        if (failed) return fail();
+        ch = get_next_token();
+        if (ch != ':') return fail(Json(JSON_PARSE_MISS_COLON));
+        o[move(key)] = parse_json();
+        if (failed) return fail();
+        ch = get_next_token();
+        if (ch == '}') break;
+        if (ch != ',') return fail(Json(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET));
+        ch = get_next_token();
+    }
+    return o;
 }
 
 Json Json::parse(const string& in) {
     JsonParser parser(in);
     Json res = parser.parse_json();
 
-    if (parser.get_index() != in.size() || res.state != JSON_PARSE_OK)
-        return Json(JSON_PARSE_EXPECT_VALUE);
+    if (parser.get_index() != in.size() || parser.failed)
+        return Json(res.state);
     return res;
 }
 
