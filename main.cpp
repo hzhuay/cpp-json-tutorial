@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include "myjson.h"
+#include <cassert>
 
 // static int main_ret = 0;
 // static int test_count = 0;
@@ -46,7 +47,7 @@ static void test_parse() {
     json = Json::parse("1.12e-10");
     cout << json.number_value() << std::endl;
 
-    json = Json::parse("\"Hello World 你好，世界\"");
+    json = Json::parse("\"Hello World 你好世界\"");
     cout << json.string_value() << std::endl;
 
     json = Json::parse("[1, 2.3, true, false, \"Hello\", [1,2]]");

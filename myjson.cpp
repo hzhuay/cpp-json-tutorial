@@ -1,14 +1,15 @@
 #include "myjson.h"
-#include <climits>
+#include <limits>
 #include <cstdio>
 #include <cmath>
+#include <memory>
 
 // JsonValue的各种派生类和模板特化
 namespace myjson {
 
 using std::make_shared;
 using std::move;
-using std::shared_ptr;
+// using std::shared_ptr;
 using std::string;
 
 struct NullStruct {
@@ -83,9 +84,9 @@ public:
     使用单例模式，创建一系列可以公用的静态值和动态值的初始值。
 */
 struct Singleton {
-    const shared_ptr<JsonValue> null = make_shared<JsonNull>();
-    const shared_ptr<JsonValue> t = make_shared<JsonBool>(true);
-    const shared_ptr<JsonValue> f = make_shared<JsonBool>(false);
+    const std::shared_ptr<JsonValue> null = make_shared<JsonNull>();
+    const std::shared_ptr<JsonValue> t = make_shared<JsonBool>(true);
+    const std::shared_ptr<JsonValue> f = make_shared<JsonBool>(false);
     const string empty_string;
     const Json::array empty_array;
     const Json::object empty_object;

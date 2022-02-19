@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
+#include <cassert>
 
 using std::string;
-using std::shared_ptr;
+// using std::shared_ptr;
 
 namespace myjson {
 enum State {
