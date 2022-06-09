@@ -94,7 +94,7 @@ struct Singleton {
     Singleton() {}
 };
 
-// 利用静态局部变量，实现单例
+// 利用静态局部变量，实现懒汉单例模式
 static const Singleton& singleton() {
     static const Singleton s;
     return s;
